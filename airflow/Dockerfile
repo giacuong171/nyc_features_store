@@ -11,3 +11,8 @@ RUN pip install git+https://github.com/mpgreg/airflow-provider-great-expectation
 
 # Requirement for running Docker Operator
 RUN pip install apache-airflow-providers-docker==3.7.5
+RUN pip install httpx==0.24.1 
+
+#install requirement for DAGs
+COPY deltalake_requirements.txt .
+RUN pip install --no-cache-dir -r deltalake_requirements.txt
