@@ -10,6 +10,7 @@ from great_expectations_provider.operators.great_expectations import (
 )
 from airflow import DAG
 
+
 import yaml
 
 DATA_DIR = "/opt/airflow/data/"
@@ -31,11 +32,30 @@ def load_cfg(cfg_file):
     return cfg
 
 
+def upload_local_directory_to_minio(minio_client, local_path, bucket_name, minio_path):
+    import glob
+
+    assert os.path.isdir(local_path)
+
+    for local_file in glob.glob(local_path + "/**"):
+        if not os.path.isfile(local_file):
+            upload_local_directory_to_minio(
+                minio_client,
+                local_file,
+                bucket_name,
+                minio_path + "/" + os.path.basename(local_file),
+            )
+        else:
+            remote_path = os.path.join(minio_path, local_file[1 + len(local_path) :])
+            minio_client.fput_object(bucket_name, remote_path, local_file)
+
+
 with DAG(dag_id="nyc2deltalake", start_date=datetime(2023, 7, 1), schedule=None) as dag:
     system_maintenance_task = BashOperator(
         task_id="system_maintenance_task",
-        # bash_command='apt-get update && apt-get upgrade -y'
-        bash_command="pip install minio==7.1.16 ",
+        bash_command="echo 'Install some dependencies' ",
+        # bash_command="apt-get update && apt-get upgrade -y",
+        # bash_command="pip install minio==7.1.16 deltalake==0.10.2 delta-spark==3.1.0 ",
     )
 
     @task
@@ -45,11 +65,31 @@ with DAG(dag_id="nyc2deltalake", start_date=datetime(2023, 7, 1), schedule=None)
         from glob import glob
         from deltalake import DeltaTable
         from deltalake.writer import write_deltalake
+        import urllib3
 
+        dtypes = {
+            "dolocationid": "int64",
+            "dropoff_datetime": "datetime64[us]",
+            "extra": "float64",
+            "fare_amount": "float64",
+            "improvement_surcharge": "float64",
+            "mta_tax": "float64",
+            "pickup_datetime": "datetime64[us]",
+            "pulocationid": "int64",
+            "tip_amount": "float64",
+            "tolls_amount": "float64",
+            "total_amount": "float64",
+            "trip_distance": "float64",
+            "vendorid": "int64",
+        }
+        http_client = urllib3.PoolManager(cert_reqs="CERT_NONE")
+        urllib3.disable_warnings()
         # Upload files.
         all_fps = glob(os.path.join(DATA_DIR, "green_*.parquet"))
         for fp in all_fps:
+            print(f"Create deltalake {fp}")
             df = pd.read_parquet(os.path.join(DATA_DIR, fp), engine="pyarrow")
+            df = df.astype(dtypes)
             write_deltalake(os.path.join(DATA_DIR, "delta_lake"), df, mode="append")
 
     @task
@@ -63,6 +103,7 @@ with DAG(dag_id="nyc2deltalake", start_date=datetime(2023, 7, 1), schedule=None)
 
         cfg = load_cfg(deltalake_config)
         datalake_cfg = cfg["datalake"]
+        airflow_data = cfg["airflow_data"]
         # Create a client with the MinIO server playground, its access key
         # and secret key.
         # For fixing this bug: [Errno 111] Connection refused')); 527)
@@ -87,17 +128,24 @@ with DAG(dag_id="nyc2deltalake", start_date=datetime(2023, 7, 1), schedule=None)
                 f'Bucket {datalake_cfg["bucket_name"]} already exists, skip creating!'
             )
 
-        # Upload files.
-        all_fps = glob(os.path.join(DATA_DIR, "green_*.parquet"))
+        upload_local_directory_to_minio(
+            client,
+            airflow_data["folder_path"],
+            datalake_cfg["bucket_name"],
+            datalake_cfg["folder_name"],
+        )
+        # # Upload files.
+        # all_fps = glob(os.path.join(DATA_DIR, "green_*.parquet"))
 
-        for fp in all_fps:
-            print(f"Uploading {fp}")
-            client.fput_object(
-                bucket_name=datalake_cfg["bucket_name"],
-                object_name=os.path.join(
-                    datalake_cfg["folder_name"], os.path.basename(fp)
-                ),
-                file_path=fp,
-            )
+        # for fp in all_fps:
+        #     print(f"Uploading {fp}")
+        #     client.fput_object(
+        #         bucket_name=datalake_cfg["bucket_name"],
+        #         object_name=os.path.join(
+        #             datalake_cfg["folder_name"], os.path.basename(fp)
+        #         ),
+        #         file_path=fp,
+        #     )
 
-    (system_maintenance_task >> parquet2deltalake())
+    (system_maintenance_task >> generate_deltalake() >> parquet2deltalake())
+    # >> parquet2deltalake()

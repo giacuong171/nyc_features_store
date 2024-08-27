@@ -166,3 +166,5 @@ cython_debug/
 airflow/logs
 airflow/plugins
 airflow/include
+airflow/data
+airflow/config

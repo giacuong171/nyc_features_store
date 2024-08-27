@@ -294,3 +294,6 @@ services:
 
 volumes:
   postgres-db-volume:
+# networks:
+#   nyc_network:
+#     driver: bridge
