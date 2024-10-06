@@ -166,3 +166,6 @@ cython_debug/
 airflow/logs
 airflow/plugins
 airflow/data
+datastorage/datalake/minio_storage
+datastorage/kafka_connect
+utils

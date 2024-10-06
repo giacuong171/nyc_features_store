@@ -27,16 +27,6 @@ services:
       POSTGRES_PASSWORD: hive
       POSTGRES_DB: metastore
 
-  offline-fs:
-    container_name: datalake-offline-fs
-    image: postgres:11
-    ports:
-      - "5434:5432" # Access via Thrift protocol
-    environment:
-      POSTGRES_USER: k6
-      POSTGRES_PASSWORD: k6
-      POSTGRES_DB: k6
-
   # Expose service to get metadata, which is a repository of metadata about the tables,
   # such as database names, table names, schema and data location of each table
   hive-metastore:
@@ -89,7 +79,6 @@ services:
     command: server --console-address ":9001" /data
 
 volumes:
-  postgres-db-volume:
   minio_storage:
   # cdc_postgres_data:
 # networks:
